@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: Demo AWS Fargate Node.js Service usign Secrets Manager
+Description: Demo AWS Fargate Service usign Secrets Manager
 
 Parameters:
 
