@@ -1,0 +1,277 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Demo AWS Fargate Node.js Service usign Secrets Manager
+
+Parameters:
+
+  AppName:
+    Type: String
+    Description: The Name of the Application
+    Default: Demo-App
+
+  AppENV:
+    Type: String
+    Description: The name of the applicationm env, e.g test.prod.beta
+    Default: test
+
+  ServiceName:
+    Type: String
+    Default: Demo-service
+    Description: A name for the service
+
+  ClusterName:
+    Type: String
+    Default: ecs-test
+    Description: The name of the ECS cluster
+
+  ImageUrl:
+    Type: String
+    Default: seanredmond1/secretsmanager-demo:latest
+    Description: The url of a docker image that contains the application process that
+                 will handle the traffic for this service
+
+  ContainerCpu:
+    Type: Number
+    Default: 1024
+    Description: How much CPU to give the container. 1024 is 1 CPU
+
+  ContainerMemory:
+    Type: Number
+    Default: 2048
+    Description: How much memory in megabytes to give the container
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: How many copies of the service task to run
+
+  DeploymentMaximumPercent:
+    Type: Number
+    Default: 200
+    Description: Upper limit on the number of tasks in a service that are allowed
+                 in the RUNNING or PENDING state during a deployment.
+
+  DeploymentMinimumPercent:
+    Type: Number
+    Default: 100
+    Description: Lower limit on the number of tasks in a service that are allowed
+                 in the RUNNING or PENDING state during a deployment.
+
+  ContainerPort:
+    Type: Number
+    Default: 54984
+    Description: What port number the application inside the docker container is binding to
+
+  CIDRRangePrefix:
+    Description: 'Class B of VPC (10.XXX.0.0/16)'
+    Type: Number
+    ConstraintDescription: 'Must be in the range [0-255]'
+    MinValue: 0
+    MaxValue: 255
+    Default: 10
+
+Resources:
+
+#The VPC
+
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Sub '10.${CIDRRangePrefix}.0.0/16'
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-VPC']]
+        - Key: Env
+          Value: Test
+        - Key: Project
+          Value: AWS
+        - Key: InfraType
+          Value: Network
+
+  PublicNetAZ1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Sub '10.${CIDRRangePrefix}.0.0/22'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-PublicAZ1']]
+      VpcId: !Ref 'MyVPC'
+
+  PublicNetAZ2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Sub '10.${CIDRRangePrefix}.4.0/22'
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-PublicAZ2']]
+      VpcId: !Ref 'MyVPC'
+
+  MyInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-IGW']]
+
+  MyVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref 'MyInternetGateway'
+      VpcId: !Ref 'MyVPC'
+
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 'MyVPC'
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-PublicRT']]
+  
+  RoutePublicDefault:
+    DependsOn:
+      - MyVPCGatewayAttachment
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref 'RouteTablePublic'
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref 'MyInternetGateway'
+
+  RouteAssociationPublicAZ1Default:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PublicNetAZ1'
+      RouteTableId: !Ref 'RouteTablePublic'
+
+  RouteAssociationPublicAZ2Default:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref 'PublicNetAZ2'
+      RouteTableId: !Ref 'RouteTablePublic'
+
+#The ECS CLuster
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+#The ECS Task
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 7
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                # Allow the ECS tasks to upload logs to CloudWatch
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                # Allow the ECS tasks to Read Secrets Manager
+                - 'secretsmanager:GetResourcePolicy'
+                - 'secretsmanager:GetSecretValue'
+                - 'secretsmanager:DescribeSecret'
+                - 'secretsmanager:ListSecretVersionIds'
+              Resource: !Ref TaskSecret
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref 'ServiceName'
+      Cpu: !Ref 'ContainerCpu'
+      Memory: !Ref 'ContainerMemory'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
+      TaskRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
+      ContainerDefinitions:
+        - Name: !Ref 'ServiceName'
+          Cpu: !Ref 'ContainerCpu'
+          Memory: !Ref 'ContainerMemory'
+          Image: !Ref 'ImageUrl'
+          PortMappings:
+            - ContainerPort: !Ref 'ContainerPort'
+          Essential: true
+          LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref 'LogGroup'
+                awslogs-region: !Ref "AWS::Region"
+                awslogs-stream-prefix: !Ref 'ServiceName'
+          Environment:
+            - Name: REDIS_PORT
+              Value: '6379'
+            - Name: AppName
+              Value: !Ref AppName
+            - Name: AppENV
+              Value: !Ref AppENV
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'MyVPC'
+      GroupDescription: Demo-SecGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: !Ref 'ServiceName'
+      Cluster: !Ref 'ClusterName'
+      LaunchType: FARGATE
+      DeploymentConfiguration:
+        MaximumPercent: !Ref DeploymentMaximumPercent
+        MinimumHealthyPercent: !Ref DeploymentMinimumPercent
+      DesiredCount: !Ref 'DesiredCount'
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref SecurityGroup
+          Subnets: 
+            - !Ref PublicNetAZ1
+            - !Ref PublicNetAZ2
+      TaskDefinition: !Ref 'TaskDefinition'
+
+  TaskSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Sub '${AppName}-${AppENV}'
+      Description: "This Secret contains KV's that are populated into the docker task via entrypoint.sh"
+      SecretString: '{"examplevar":"examplevalue"}'
+      Tags:
+        - Key: AppName 
+          Value: !Ref AppName
+        - Key: AppENV 
+          Value: !Ref AppENV
