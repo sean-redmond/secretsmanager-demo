@@ -211,6 +211,10 @@ Resources:
         - FARGATE
       ExecutionRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
       TaskRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
+      Ulimits:
+      - Name: 'nofile'
+        SoftLimit: 30000
+        HardLimit: 10000
       ContainerDefinitions:
         - Name: !Ref 'ServiceName'
           Cpu: !Ref 'ContainerCpu'
