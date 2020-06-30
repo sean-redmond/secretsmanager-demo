@@ -4,6 +4,9 @@ set -e
 #print ulimit
 ulimit -a
 
+#print fsmax
+cat /proc/sys/fs/file-max
+
 #Check if this in AWS
 if [ $(head -c 3 /sys/hypervisor/uuid) == "ec2" ]; then
   echo "We are running on EC2 so lets call secrets manager"
