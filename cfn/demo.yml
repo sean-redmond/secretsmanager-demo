@@ -215,8 +215,8 @@ Resources:
         - Name: !Ref 'ServiceName'
           Ulimits:
           - Name: 'nofile'
-            SoftLimit: 30000
-            HardLimit: 10000
+            SoftLimit: 10000
+            HardLimit: 30000
           Cpu: !Ref 'ContainerCpu'
           Memory: !Ref 'ContainerMemory'
           Image: !Ref 'ImageUrl'
