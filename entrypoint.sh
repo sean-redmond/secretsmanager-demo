@@ -4,12 +4,6 @@ set -e
 #print ulimit
 ulimit -a
 
-#try and set ulimit values
-ulimit -n 90000
-
-#print ulimit
-ulimit -a
-
 #print fsmax
 cat /proc/sys/fs/file-max
 
