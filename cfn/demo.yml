@@ -211,12 +211,12 @@ Resources:
         - FARGATE
       ExecutionRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
       TaskRoleArn: !GetAtt 'ECSTaskExecutionRole.Arn'
-      Ulimits:
-      - Name: 'nofile'
-        SoftLimit: 30000
-        HardLimit: 10000
       ContainerDefinitions:
         - Name: !Ref 'ServiceName'
+          Ulimits:
+          - Name: 'nofile'
+            SoftLimit: 30000
+            HardLimit: 10000
           Cpu: !Ref 'ContainerCpu'
           Memory: !Ref 'ContainerMemory'
           Image: !Ref 'ImageUrl'
