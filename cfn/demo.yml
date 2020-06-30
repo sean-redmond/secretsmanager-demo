@@ -217,6 +217,7 @@ Resources:
           - Name: 'nofile'
             SoftLimit: 10000
             HardLimit: 30000
+          Privileged: true
           Cpu: !Ref 'ContainerCpu'
           Memory: !Ref 'ContainerMemory'
           Image: !Ref 'ImageUrl'
